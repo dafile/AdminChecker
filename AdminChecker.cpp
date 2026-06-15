@@ -373,7 +373,7 @@ static LangPack* L() { return g_lang == 0 ? &g_cn : &g_en; }
 // ============================================================================
 static const wchar_t* WINDOW_CLASS = L"AdminCheckerWnd";
 static const int WIN_W = 800;
-static const int WIN_H = 660;
+static const int WIN_H = 720;
 
 enum {
     ID_BTN_CHECK = 1001, ID_BTN_LOG = 1002, ID_BTN_SETTINGS = 1003,
