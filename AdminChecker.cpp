@@ -6,6 +6,12 @@
  *   build.bat
  */
 
+// Version: build timestamp (use preprocessor string concatenation)
+#define WIDEN2(x) L##x
+#define WIDEN(x) WIDEN2(x)
+static const wchar_t* APP_VERSION = L"v" WIDEN(__DATE__) L" " WIDEN(__TIME__);
+static const wchar_t* APP_VERSION_SHORT = L"v" WIDEN(__DATE__);
+
 #ifndef _WIN32_WINNT
 #define _WIN32_WINNT 0x0601
 #endif
@@ -24,6 +30,7 @@
 
 #include <windows.h>
 #include <shellapi.h>
+#include "resource.h"
 #include <sddl.h>
 #include <lm.h>
 #include <shlobj.h>
@@ -111,6 +118,8 @@ struct LangPack {
     const wchar_t* settSave;
     const wchar_t* settCancel;
     const wchar_t* settSaved;
+    const wchar_t* settFont;
+    const wchar_t* settFontSize;
 
     // About
     const wchar_t* aboutTitle;
@@ -217,10 +226,12 @@ static LangPack g_cn = {
     L"保存",                              // settSave
     L"取消",                              // settCancel
     L"设置已保存，重启后生效。",          // settSaved
+    L"字体",                              // settFont
+    L"字号",                              // settFontSize
 
     // About
     L"关于",                              // aboutTitle
-    L"Admin 权限检测工具 v2.0\n\n"
+    L"Admin 权限检测工具\n\n"
     L"使用 7 种方法检测当前进程的管理员权限状态。\n"
     L"程序本身不请求提权运行。\n\n"
     L"对比方式:\n"
@@ -280,9 +291,10 @@ static LangPack g_en = {
     L"Auto-check on startup", L"Yes", L"No",
     L"Auto-log after check", L"Log network path",
     L"Save", L"Cancel", L"Settings saved. Restart to apply.",
+    L"Font", L"Font Size",
 
     L"About",
-    L"Admin Privilege Checker v2.0\n\n"
+    L"Admin Privilege Checker\n\n"
     L"Detects admin privileges using 7 methods.\n"
     L"The program does NOT request elevation itself.\n\n"
     L"Compare by running:\n"
@@ -311,7 +323,9 @@ static const wchar_t* INI_FILE = L"AdminChecker.ini";
 static int g_lang = 0;           // 0=CN, 1=EN
 static int g_autoCheck = 1;      // 1=auto check on startup
 static int g_autoLog = 1;        // 1=auto log after check
-static wchar_t g_logPath[MAX_PATH] = L"\\\\172.30.220.250\\itclass\\record\\ip.log";
+static wchar_t g_logPath[MAX_PATH] = L"\\\\172.30.220.250\\record\\ip.log";
+static wchar_t g_fontName[64] = L"SimSun";  // 宋体
+static int g_fontSize = 12;      // 小四 = 12pt
 
 static void LoadConfig() {
     wchar_t iniPath[MAX_PATH];
@@ -325,8 +339,11 @@ static void LoadConfig() {
     g_autoCheck = GetPrivateProfileIntW(L"Settings", L"AutoCheck", 1, iniPath);
     g_autoLog = GetPrivateProfileIntW(L"Settings", L"AutoLog", 1, iniPath);
     GetPrivateProfileStringW(L"Settings", L"LogPath",
-        L"\\\\172.30.220.250\\itclass\\record\\ip.log",
+        L"\\\\172.30.220.250\\record\\ip.log",
         g_logPath, MAX_PATH, iniPath);
+    GetPrivateProfileStringW(L"Settings", L"FontName",
+        L"SimSun", g_fontName, 64, iniPath);
+    g_fontSize = GetPrivateProfileIntW(L"Settings", L"FontSize", 12, iniPath);
 }
 
 static void SaveConfig() {
@@ -344,6 +361,9 @@ static void SaveConfig() {
     wsprintfW(buf, L"%d", g_autoLog);
     WritePrivateProfileStringW(L"Settings", L"AutoLog", buf, iniPath);
     WritePrivateProfileStringW(L"Settings", L"LogPath", g_logPath, iniPath);
+    WritePrivateProfileStringW(L"Settings", L"FontName", g_fontName, iniPath);
+    wsprintfW(buf, L"%d", g_fontSize);
+    WritePrivateProfileStringW(L"Settings", L"FontSize", buf, iniPath);
 }
 
 static LangPack* L() { return g_lang == 0 ? &g_cn : &g_en; }
@@ -358,11 +378,6 @@ static const int WIN_H = 660;
 enum {
     ID_BTN_CHECK = 1001, ID_BTN_LOG = 1002, ID_BTN_SETTINGS = 1003,
     ID_BTN_ABOUT = 1004, ID_BTN_EXIT = 1005,
-    // Settings dialog
-    ID_SET_LANG = 2001, ID_SET_AUTOCHECK = 2002, ID_SET_AUTOLOG = 2003,
-    ID_SET_LOGPATH = 2004, ID_SET_SAVE = 2005, ID_SET_CANCEL = 2006,
-    ID_SET_LBL_LANG = 2010, ID_SET_LBL_AUTOCHECK = 2011,
-    ID_SET_LBL_AUTOLOG = 2012, ID_SET_LBL_LOGPATH = 2013,
 };
 
 static const COLORREF CLR_GREEN  = RGB(34, 139, 34);
@@ -796,12 +811,13 @@ static void PaintResults(HWND hWnd) {
 
     int y = 10;
 
-    // Title bar
+    // Title bar with version
     RECT rcT = {20, y, rc.right - 20, y + 38};
     FillRect(mem, &rcT, CreateSolidBrush(CLR_HEADER));
     SelectObject(mem, g_hFontTitle);
     SetTextColor(mem, CLR_WHITE);
-    DrawTextW(mem, l->title, -1, &rcT, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+    std::wstring titleStr = std::wstring(l->title) + L"  " + APP_VERSION;
+    DrawTextW(mem, titleStr.c_str(), -1, &rcT, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
     y += 48;
 
     // User info
@@ -919,6 +935,15 @@ static void PaintResults(HWND hWnd) {
 // ============================================================================
 // Settings dialog
 // ============================================================================
+static int CALLBACK FontEnumProc(const LOGFONTW* lpelf, const TEXTMETRICW*, DWORD, LPARAM lParam) {
+    // Only add TrueType or regular fonts, skip vertical/@name
+    if (lpelf->lfFaceName[0] == L'@') return 1;
+    if (!(lpelf->lfPitchAndFamily & 0x01)) return 1; // skip non-TRUETYPE
+    HWND hCombo = (HWND)lParam;
+    SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)lpelf->lfFaceName);
+    return 1;
+}
+
 static INT_PTR CALLBACK SettingsDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
     LangPack* l = L();
     switch (msg) {
@@ -938,6 +963,36 @@ static INT_PTR CALLBACK SettingsDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPAR
         SendDlgItemMessageW(hDlg, ID_SET_AUTOLOG, CB_ADDSTRING, 0, (LPARAM)l->settNo);
         SendDlgItemMessageW(hDlg, ID_SET_AUTOLOG, CB_SETCURSEL, g_autoLog ? 0 : 1, 0);
 
+        // Font name: enumerate system fonts
+        {
+            HWND hCombo = GetDlgItem(hDlg, ID_SET_FONTNAME);
+            HDC hdc = GetDC(hDlg);
+            LOGFONTW lf = {0};
+            lf.lfCharSet = DEFAULT_CHARSET;
+            EnumFontFamiliesExW(hdc, &lf, FontEnumProc, (LPARAM)hCombo, 0);
+            ReleaseDC(hDlg, hdc);
+            // Select current font
+            int idx = (int)SendMessageW(hCombo, CB_FINDSTRINGEXACT, -1, (LPARAM)g_fontName);
+            if (idx == CB_ERR) idx = 0;
+            SendMessageW(hCombo, CB_SETCURSEL, idx, 0);
+        }
+
+        // Font size
+        {
+            HWND hCombo = GetDlgItem(hDlg, ID_SET_FONTSIZE);
+            const wchar_t* sizes[] = {L"9", L"10", L"11", L"12", L"14", L"16", L"18", L"20", L"24"};
+            int sizeVals[] = {9, 10, 11, 12, 14, 16, 18, 20, 24};
+            for (int i = 0; i < 9; i++) {
+                SendMessageW(hCombo, CB_ADDSTRING, 0, (LPARAM)sizes[i]);
+            }
+            // Select current size
+            int sel = 3; // default 12
+            for (int i = 0; i < 9; i++) {
+                if (sizeVals[i] == g_fontSize) { sel = i; break; }
+            }
+            SendMessageW(hCombo, CB_SETCURSEL, sel, 0);
+        }
+
         // Log path
         SetDlgItemTextW(hDlg, ID_SET_LOGPATH, g_logPath);
 
@@ -946,6 +1001,8 @@ static INT_PTR CALLBACK SettingsDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPAR
         SetDlgItemTextW(hDlg, ID_SET_LBL_AUTOCHECK, l->settAutoCheck);
         SetDlgItemTextW(hDlg, ID_SET_LBL_AUTOLOG, l->settAutoLog);
         SetDlgItemTextW(hDlg, ID_SET_LBL_LOGPATH, l->settLogPath);
+        SetDlgItemTextW(hDlg, ID_SET_LBL_FONT, l->settFont);
+        SetDlgItemTextW(hDlg, ID_SET_LBL_FONTSIZE, l->settFontSize);
         SetDlgItemTextW(hDlg, ID_SET_SAVE, l->settSave);
         SetDlgItemTextW(hDlg, ID_SET_CANCEL, l->settCancel);
         SetWindowTextW(hDlg, l->settingsTitle);
@@ -958,6 +1015,23 @@ static INT_PTR CALLBACK SettingsDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPAR
             g_autoCheck = (int)SendDlgItemMessageW(hDlg, ID_SET_AUTOCHECK, CB_GETCURSEL, 0, 0) == 0 ? 1 : 0;
             g_autoLog = (int)SendDlgItemMessageW(hDlg, ID_SET_AUTOLOG, CB_GETCURSEL, 0, 0) == 0 ? 1 : 0;
             GetDlgItemTextW(hDlg, ID_SET_LOGPATH, g_logPath, MAX_PATH);
+            // Font name
+            {
+                int fidx = (int)SendDlgItemMessageW(hDlg, ID_SET_FONTNAME, CB_GETCURSEL, 0, 0);
+                if (fidx != CB_ERR)
+                    SendDlgItemMessageW(hDlg, ID_SET_FONTNAME, CB_GETLBTEXT, fidx, (LPARAM)g_fontName);
+            }
+            // Font size
+            {
+                int sidx = (int)SendDlgItemMessageW(hDlg, ID_SET_FONTSIZE, CB_GETCURSEL, 0, 0);
+                if (sidx != CB_ERR) {
+                    wchar_t sz[8];
+                    SendDlgItemMessageW(hDlg, ID_SET_FONTSIZE, CB_GETLBTEXT, sidx, (LPARAM)sz);
+                    g_fontSize = _wtoi(sz);
+                    if (g_fontSize < 8) g_fontSize = 8;
+                    if (g_fontSize > 36) g_fontSize = 36;
+                }
+            }
             SaveConfig();
             MessageBoxW(hDlg, L()->settSaved, L()->settingsTitle, MB_ICONINFORMATION);
             EndDialog(hDlg, 1);
@@ -978,33 +1052,41 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
     LangPack* l = L();
     switch (msg) {
     case WM_CREATE: {
-        g_hFontNormal = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        // Font: use configured name and size, CLEARTYPE for Chinese readability
+        int fh = -MulDiv(g_fontSize, GetDeviceCaps(GetDC(hWnd), LOGPIXELSY), 72);
+        g_hFontNormal = CreateFontW(fh, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-        g_hFontBold = CreateFontW(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_ROMAN, g_fontName);
+        g_hFontBold = CreateFontW(fh, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
-        g_hFontTitle = CreateFontW(18, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_ROMAN, g_fontName);
+        g_hFontTitle = CreateFontW(fh + 2, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_ROMAN, g_fontName);
         g_hBrushBg = CreateSolidBrush(CLR_BG);
 
-        int btnY = WIN_H - 60;
-        int x = 20;
-        auto MakeBtn = [&](const wchar_t* text, int id, int w) -> HWND {
+        // Buttons: centered at bottom, fixed total width
+        int btnY = WIN_H - 55;
+        int btnH = 30;
+        int btnW = 100;
+        int gap = 8;
+        int totalW = 5 * btnW + 4 * gap;  // 532
+        int startX = (WIN_W - totalW) / 2;
+        int x = startX;
+        auto MakeBtn = [&](const wchar_t* text, int id) -> HWND {
             HWND hBtn = CreateWindowW(L"BUTTON", text,
                 WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                x, btnY, w, 32, hWnd, (HMENU)(INT_PTR)id, g_hInst, NULL);
+                x, btnY, btnW, btnH, hWnd, (HMENU)(INT_PTR)id, g_hInst, NULL);
             SendMessageW(hBtn, WM_SETFONT, (WPARAM)g_hFontBold, TRUE);
-            x += w + 10;
+            x += btnW + gap;
             return hBtn;
         };
 
-        MakeBtn(l->btnCheck, ID_BTN_CHECK, 110);
-        MakeBtn(l->btnLog, ID_BTN_LOG, 110);
-        MakeBtn(l->btnSettings, ID_BTN_SETTINGS, 80);
-        MakeBtn(l->btnAbout, ID_BTN_ABOUT, 80);
-        MakeBtn(l->btnExit, ID_BTN_EXIT, 80);
+        MakeBtn(l->btnCheck, ID_BTN_CHECK);
+        MakeBtn(l->btnLog, ID_BTN_LOG);
+        MakeBtn(l->btnSettings, ID_BTN_SETTINGS);
+        MakeBtn(l->btnAbout, ID_BTN_ABOUT);
+        MakeBtn(l->btnExit, ID_BTN_EXIT);
 
         // Auto-check on startup
         if (g_autoCheck) {
@@ -1039,9 +1121,15 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         case ID_BTN_SETTINGS:
             DialogBoxW(g_hInst, MAKEINTRESOURCEW(100), hWnd, SettingsDlgProc);
             break;
-        case ID_BTN_ABOUT:
-            MessageBoxW(hWnd, l->aboutText, l->aboutTitle, MB_ICONINFORMATION);
+        case ID_BTN_ABOUT: {
+            std::wstring ab = std::wstring(l->aboutText)
+                + L"  " + APP_VERSION
+                + L"\n\nFont: " + g_fontName
+                + L" " + std::to_wstring(g_fontSize) + L"pt"
+                + L"\nLog: " + g_logPath;
+            MessageBoxW(hWnd, ab.c_str(), l->aboutTitle, MB_ICONINFORMATION);
             break;
+        }
         case ID_BTN_EXIT:
             PostMessageW(hWnd, WM_CLOSE, 0, 0);
             break;
