@@ -373,7 +373,7 @@ static LangPack* L() { return g_lang == 0 ? &g_cn : &g_en; }
 // ============================================================================
 static const wchar_t* WINDOW_CLASS = L"AdminCheckerWnd";
 static const int WIN_W = 800;
-static const int WIN_H = 720;
+static const int WIN_H = 800;
 
 enum {
     ID_BTN_CHECK = 1001, ID_BTN_LOG = 1002, ID_BTN_SETTINGS = 1003,
@@ -1066,7 +1066,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         g_hBrushBg = CreateSolidBrush(CLR_BG);
 
         // Buttons: centered at bottom, fixed total width
-        int btnY = WIN_H - 55;
+        int btnY = WIN_H - 120;
         int btnH = 30;
         int btnW = 100;
         int gap = 8;
