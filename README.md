@@ -6,6 +6,15 @@ A lightweight Windows admin privilege detection tool that checks whether the cur
 
 ---
 
+## 截图 / Screenshots
+
+程序启动后自动检测，显示结果：
+
+<img width="772" height="778" alt="2026-06-15_18-46-12" src="https://github.com/user-attachments/assets/652f429b-831e-4850-8c42-6f29fabe1819" />
+
+
+---
+
 ## 功能特性 / Features
 
 - **8 种检测方法**：令牌管理员组、令牌提权类型、提权标志、管理员 SID 匹配、用户特权级别、HKLM 注册表写入测试、系统目录写入测试、进程完整性级别
@@ -29,13 +38,7 @@ A lightweight Windows admin privilege detection tool that checks whether the cur
 - **可配置字体**：默认宋体 12pt（小四），可在设置中选择系统字体和字号
 - **Configurable font**: Default SimSun 12pt, choose from system fonts and sizes in settings
 
----
 
-## 截图 / Screenshots
-
-程序启动后自动检测，显示结果：
-
-![screenshot](screenshot.png)
 
 ---
 
